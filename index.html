@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>旅程分帳管家 - 彩色共享版</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
+        body { font-family: 'Inter', -apple-system, "Microsoft JhengHei", sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-item { animation: fadeIn 0.4s ease forwards; }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const categories = [
+            { id: 'food', label: '食物', icon: '🍱', color: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-600' },
+            { id: 'transport', label: '交通', icon: '🚗', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600' },
+            { id: 'hotel', label: '住宿', icon: '🏨', color: 'bg-indigo-500', light: 'bg-indigo-50', text: 'text-indigo-600' },
+            { id: 'ticket', label: '門票', icon: '🎫', color: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600' },
+            { id: 'flight', label: '機票', icon: '✈️', color: 'bg-sky-400', light: 'bg-sky-50', text: 'text-sky-600' },
+            { id: 'other', label: '其他', icon: '🎸', color: 'bg-rose-500', light: 'bg-rose-50', text: 'text-rose-600' }
+        ];
+
+        const App = () => {
+            const participants = ['林新穎', '鄭可均', '彭心瑜'];
+            const [expenses, setExpenses] = useState(() => {
+                const saved = localStorage.getItem('trip_v3_data');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [rate, setRate] = useState(0.21);
+            const [formData, setFormData] = useState({
+                name: '', amount: '', currency: 'JPY', payer: '林新穎', splitWith: [...participants], category: 'food'
+            });
+            const [toast, setToast] = useState({ show: false, msg: '' });
+            const [showImport, setShowImport] = useState(false);
+            const [importCode, setImportCode] = useState('');
+
+            const showToast = (msg) => {
+                setToast({ show: true, msg });
+                setTimeout(() => setToast({ show: false, msg: '' }), 3000);
+            };
+
+            useEffect(() => {
+                localStorage.setItem('trip_v3_data', JSON.stringify(expenses));
+            }, [expenses]);
+
+            const handleAdd = (e) => {
+                e.preventDefault();
+                if (!formData.name || !formData.amount) return;
+                const newEntry = {
+                    ...formData,
+                    id: Date.now(),
+                    amount: parseFloat(formData.amount),
+                    rateAtTime: rate,
+                    createdAt: new Date().toLocaleString()
+                };
+                setExpenses(prev => [newEntry, ...prev]);
+                setFormData(prev => ({ ...prev, name: '', amount: '' }));
+                showToast("✅ 已成功記帳！");
+            };
+
+            const toggleParticipant = (name) => {
+                setFormData(prev => ({
+                    ...prev,
+                    splitWith: prev.splitWith.includes(name)
+                        ? prev.splitWith.filter(n => n !== name)
+                        : [...prev.splitWith, name]
+                }));
+            };
+
+            const summary = useMemo(() => {
+                const balances = { '林新穎': 0, '鄭可均': 0, '彭心瑜': 0 };
+                expenses.forEach(ex => {
+                    const twdVal = ex.currency === 'JPY' ? ex.amount * ex.rateAtTime : ex.amount;
+                    balances[ex.payer] += twdVal;
+                    const share = twdVal / (ex.splitWith.length || 1);
+                    ex.splitWith.forEach(p => balances[p] -= share);
+                });
+                return participants.map(name => ({ name, balance: balances[name] }));
+            }, [expenses]);
+
+            const exportData = () => {
+                const code = btoa(unescape(encodeURIComponent(JSON.stringify(expenses))));
+                const textArea = document.createElement("textarea");
+                textArea.value = code;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast("📋 數據代碼已複製，請傳給好友貼上！");
+            };
+
+            const importData = () => {
+                try {
+                    const decoded = JSON.parse(decodeURIComponent(escape(atob(importCode))));
+                    setExpenses(decoded);
+                    setShowImport(false);
+                    setImportCode('');
+                    showToast("📥 數據導入成功！");
+                } catch (e) {
+                    showToast("❌ 錯誤：代碼無效");
+                }
+            };
+
+            const copyReport = () => {
+                let report = `📊 日本行結算報告 (TWD)\n------------------\n`;
+                summary.forEach(s => {
+                    report += `${s.name}: ${s.balance >= 0 ? '應收' : '應補'} $${Math.abs(Math.round(s.balance))}\n`;
+                });
+                report += `------------------\n匯率: 1 JPY = ${rate} TWD\n總筆數: ${expenses.length}`;
+                
+                const textArea = document.createElement("textarea");
+                textArea.value = report;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast("📜 報告已複製到群組！");
+            };
+
+            const currentCategory = categories.find(c => c.id === formData.category);
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-white pb-24 shadow-2xl relative">
+                    <header className="sticky top-0 bg-white/95 backdrop-blur-md border-b z-30 px-6 py-5 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 ${currentCategory.color} rounded-2xl flex items-center justify-center text-white shadow-lg`}>
+                                <i className="fa-solid fa-wallet"></i>
+                            </div>
+                            <h1 className="text-xl font-black tracking-tight text-slate-800">旅程分帳</h1>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowImport(true)} className="w-9 h-9 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center hover:bg-gray-200">
+                                <i className="fa-solid fa-file-import text-sm"></i>
+                            </button>
+                            <button onClick={exportData} className="w-9 h-9 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center hover:bg-gray-200">
+                                <i className="fa-solid fa-share-nodes text-sm"></i>
+                            </button>
+                        </div>
+                    </header>
+
+                    <div className="p-6">
+                        {/* 結算看板 */}
+                        <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden mb-8">
+                            <div className="relative z-10">
+                                <div className="flex justify-between items-center mb-6">
+                                    <p className="text-slate-400 text-[10px] font-bold tracking-widest uppercase">當前找補 (台幣 TWD)</p>
+                                    <button onClick={copyReport} className="text-[10px] bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full font-bold">複製文字報告</button>
+                                </div>
+                                <div className="grid grid-cols-3 gap-4">
+                                    {summary.map(s => (
+                                        <div key={s.name} className="text-center border-r border-white/5 last:border-none">
+                                            <p className="text-[10px] text-slate-500 mb-2 font-bold uppercase">{s.name}</p>
+                                            <p className={`text-xl font-black font-mono ${s.balance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                {s.balance >= 0 ? '+' : ''}{Math.round(s.balance)}
+                                            </p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 輸入表單 */}
+                        <div className="bg-white rounded-[2.5rem] border border-gray-100 p-2 mb-8">
+                            <form onSubmit={handleAdd} className="space-y-6 p-4">
+                                <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+                                    {categories.map(cat => (
+                                        <button key={cat.id} type="button" onClick={() => setFormData({...formData, category: cat.id})} className="flex flex-col items-center gap-2 shrink-0">
+                                            <div className={`w-14 h-14 flex items-center justify-center rounded-[1.25rem] transition-all ${formData.category === cat.id ? `${cat.color} text-white scale-110 shadow-lg` : `bg-gray-50 text-gray-400 border border-gray-100`}`}>
+                                                <span className="text-2xl">{cat.icon}</span>
+                                            </div>
+                                            <span className={`text-[10px] font-black ${formData.category === cat.id ? cat.text : 'text-gray-400'}`}>{cat.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div className="space-y-4">
+                                    <input type="text" placeholder="事項名稱" className="w-full p-5 bg-gray-50 rounded-3xl border-none font-bold text-sm" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+                                    <div className="flex gap-2">
+                                        <select className="bg-slate-800 text-white font-bold rounded-3xl px-4 text-xs appearance-none" value={formData.currency} onChange={e => setFormData({...formData, currency: e.target.value})}>
+                                            <option value="JPY">¥ JPY</option>
+                                            <option value="TWD">$ TWD</option>
+                                        </select>
+                                        <input type="number" placeholder="金額" className="flex-1 p-5 bg-gray-50 rounded-3xl border-none font-black text-xl" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required />
+                                    </div>
+                                    <div className="flex justify-between items-center px-4">
+                                        <label className="text-[10px] font-black text-gray-300 uppercase">匯率 (1 JPY = )</label>
+                                        <input type="number" step="0.001" className="w-20 text-right font-mono font-bold text-blue-600 border-b border-dashed border-gray-200 bg-transparent outline-none" value={rate} onChange={e => setRate(parseFloat(e.target.value) || 0)} />
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 p-6 rounded-[2rem] space-y-5">
+                                    <div>
+                                        <p className="text-[9px] font-black text-gray-400 mb-3 uppercase">誰墊錢？</p>
+                                        <div className="flex gap-2">
+                                            {participants.map(p => (
+                                                <button key={p} type="button" onClick={() => setFormData({...formData, payer: p})} className={`flex-1 py-3 text-[11px] font-black rounded-2xl border transition-all ${formData.payer === p ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-white text-gray-400 border-gray-100'}`}>{p}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[9px] font-black text-gray-400 mb-3 uppercase">誰分擔？</p>
+                                        <div className="flex gap-2">
+                                            {participants.map(p => (
+                                                <button key={p} type="button" onClick={() => toggleParticipant(p)} className={`flex-1 py-3 text-[11px] font-black rounded-2xl border transition-all flex items-center justify-center gap-1 ${formData.splitWith.includes(p) ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-white text-gray-300 border-gray-50'}`}>
+                                                    {formData.splitWith.includes(p) && <i className="fa-solid fa-check-circle"></i>} {p}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button type="submit" className={`w-full ${currentCategory.color} text-white py-5 rounded-3xl font-black text-lg shadow-xl active:scale-95 transition-all`}>
+                                    加入這一筆彩色帳目
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* 明細清單 */}
+                        <div className="space-y-3">
+                            <h3 className="text-[10px] font-black text-gray-400 px-4 uppercase tracking-widest">歷史明細 ({expenses.length})</h3>
+                            {expenses.length === 0 ? (
+                                <div className="text-center py-16 bg-gray-50 rounded-[2.5rem] text-gray-300 text-[11px] font-bold uppercase">目前無紀錄</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {expenses.map(ex => {
+                                        const cat = categories.find(c => c.id === ex.category);
+                                        return (
+                                            <div key={ex.id} className="animate-item bg-white p-5 rounded-3xl border border-gray-50 flex items-center gap-5 shadow-sm">
+                                                <div className={`w-12 h-12 ${cat?.light} rounded-2xl flex items-center justify-center text-2xl`}>{cat?.icon}</div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between">
+                                                        <h4 className="font-bold text-sm text-slate-800 truncate">{ex.name}</h4>
+                                                        <span className={`font-black text-sm font-mono ${cat?.text}`}>{ex.currency === 'JPY' ? '¥' : '$'}{Math.round(ex.amount).toLocaleString()}</span>
+                                                    </div>
+                                                    <p className="text-[9px] text-gray-400 font-bold uppercase mt-1">{ex.payer} 墊付 • {ex.splitWith.length} 人分攤</p>
+                                                </div>
+                                                <button onClick={() => setExpenses(prev => prev.filter(i => i.id !== ex.id))} className="text-gray-200 hover:text-rose-500"><i className="fa-solid fa-circle-xmark text-lg"></i></button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 導入 Modal */}
+                    {showImport && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl animate-item">
+                                <h3 className="text-lg font-black mb-4">導入數據</h3>
+                                <textarea className="w-full h-32 bg-gray-50 rounded-2xl p-4 text-[10px] font-mono border-none mb-6" placeholder="在此貼上代碼..." value={importCode} onChange={(e) => setImportCode(e.target.value)} />
+                                <div className="flex gap-3">
+                                    <button onClick={() => setShowImport(false)} className="flex-1 py-4 bg-gray-100 text-gray-500 font-bold rounded-2xl">取消</button>
+                                    <button onClick={importData} className="flex-1 py-4 bg-blue-600 text-white font-bold rounded-2xl">確認導入</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Toast */}
+                    {toast.show && (
+                        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50">
+                            <div className="bg-slate-800 text-white text-[11px] font-black px-6 py-3 rounded-full shadow-2xl">
+                                {toast.msg}
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="fixed bottom-0 left-0 right-0 p-5 bg-white/80 backdrop-blur-md border-t text-center text-[9px] text-gray-300 font-black tracking-widest">
+                        林新穎 • 鄭可均 • 彭心瑜 專屬
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
